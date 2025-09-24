@@ -9,6 +9,8 @@ library(dplyr)
 library(terra)
 library(tidyterra)
 
+#for getting access to the maps
+#register_stadiamaps("YOUR-API-KEY", write = TRUE)
 
 sites <- read.csv("./ConfirmedSites.csv")%>%arrange(desc(Latitude))
 sitestab <- sites[,c("Pickup.Site.Name", "Pickup.Address","Pickup.Hours")]
