@@ -8,13 +8,27 @@ library(sswids)
 library(dplyr)
 library(terra)
 library(tidyterra)
+library(stringr)
 
 #for getting access to the maps
 #register_stadiamaps("YOUR-API-KEY", write = TRUE)
 
-sites <- read.csv("./ConfirmedSites.csv")%>%arrange(desc(Latitude))
-sitestab <- sites[,c("Pickup.Site.Name", "Pickup.Address","Pickup.Hours")]
-siteSF <- st_as_sf(x=sites, coords=c("Longitude", "Latitude"), crs=4326)
+sites <- read.csv("./map_info.csv")%>%arrange(desc(Latitude))
+sitestab <- sites[,c("Site", "Pickup.Address","Pickup.Hours")]
+sitestab$Pickup.Hours[c(2,3,15,25,33,34)] <- mapply(function (x,y) str_replace_all(string = x, pattern = y, replacement = "\n"),
+      x=sitestab$Pickup.Hours[c(2,3,15,25,33,34)], #check index numbers if number of rows changes
+       y=c("( )(?=C)", "(?<=,)( )", "( )(?=C)","( )(?=N)", "( )(?=F)", "( )(?=\\()") #tell str_replace_all where to replace space with \n 
+       )
+
+siteSF <- st_as_sf(x=sites, coords=c("Longitude", "Latitude"), crs=4326)%>%
+  mutate(lon=st_coordinates(.)[,1], lat=st_coordinates(.)[,2],
+         #adjust label lat/lon of the 2 pick up sites in Superior
+         lon=case_when(Site == "City of Superior - Parks, Recreation, & Forestry" ~ lon + 0.08,
+                       Site == "Superior Public Library" ~ lon - 0.09,
+                       .default = lon),
+         lat=case_when(Site == "City of Superior - Parks, Recreation, & Forestry" ~ lat + 0.02,
+                       Site == "Superior Public Library" ~ lat - 0.05,
+                       .default = lat))
 Wisconsin <- st_read("C:/Users/wildeefb/Documents/GeoSpatial/VectorLayers/Wisconsin_State_Boundary_24K.shp")
 Wisconsin4326 <- st_transform(Wisconsin, 4326)
 #Wisconsin without all the tiny islands that throw off centroid calculation
@@ -24,6 +38,8 @@ Counties4326 <- st_transform(Counties, 4326)
 MajorRoads <- get_spatial_data("major_roads")
 MajorRoads4326 <- st_transform(MajorRoads, 4326)
 plot(st_geometry(MajorRoads))
+
+
 
 #download basemap
 map2 <- get_map(location = c(st_coordinates(st_centroid(WisconsinMain))[1,1], st_coordinates(st_centroid(WisconsinMain))[1,2]),
@@ -39,7 +55,7 @@ sitemap <- ggplot() +
   geom_spatraster_rgb(data=WisconsinClip) + 
   geom_sf(data=MajorRoads, inherit.aes = FALSE, color="gray") +
   geom_sf(data=Counties4326, inherit.aes=FALSE, fill=NA, color="black") +
-  geom_sf_label(data=siteSF,inherit.aes = FALSE, aes(label=1:nrow(siteSF)),
+  geom_label(data=siteSF,inherit.aes = FALSE, aes(x= lon, y=lat, label=1:nrow(siteSF)), # conflict with 1 and 2
                 show.legend=FALSE, color="black", size=4) +
   theme(axis.line=element_blank(),axis.text.x=element_blank(),
         axis.text.y=element_blank(),axis.ticks=element_blank(),
@@ -48,35 +64,56 @@ sitemap <- ggplot() +
         panel.background=element_blank(),panel.border=element_blank(),panel.grid.major=element_blank(),
         panel.grid.minor=element_blank(),plot.background=element_blank())
 
-
+sitemap
 
 
 #make theme for table, only thing set is font size
 mytheme <- gridExtra::ttheme_default(
-  core = list(fg_params=list(cex = 0.6)), #fg_params = foreground parameters
-  colhead = list(fg_params=list(cex = 0.7)),
-  rowhead = list(fg_params=list(cex = 0.7)))
+  core = list(fg_params=list(cex = 0.7)), #fg_params = foreground parameters
+  colhead = list(fg_params=list(cex = 0.78)),
+  rowhead = list(fg_params=list(cex = 0.78)))
 #turn table into a tableGrob (whatever that is) for input into ggplot object
 sitestableGrob <- tableGrob(sitestab, theme=mytheme, cols = c("Pick Up Site", "Address", "Hours"))
 
 #make table a ggplot object
 tableplot <- ggplot() + theme_void() + 
   annotation_custom(sitestableGrob)
+tableplot
 
 #combine into 1 figure
-sitemap + tableplot #+ plot_layout(ncol = 1) - for vertical layout
+sitemap + tableplot + plot_layout(widths= c(1, 1.5))
 
 
 
 ###################################################################################################
 ####                  scrap paper (old code) you can ignore everything below this line         ####
 ###################################################################################################
+
+
+sitestab$Pickup.Hours[c(3, 25)] <- str_replace_all(string = sitestab$Pickup.Hours[c(3)],
+                                                   c("( )(?=W)"="\n", "( )(?=N)"= "\n"))
+sitestab$Pickup.Hours[c(2,3,15,25,32,33)] <- str_replace_all(string = sitestab$Pickup.Hours[c(2,3,15,25,32,33)],
+                                                             c("( )(?=C)"="\n", "(?<=,)( )"= "\n", "(?<=;{2})( )"="\n",
+                                                               "( )(?=N)"= "\n", "( )(?=F)"= "\n", "( )(?=\\()"= "\n"))
+
+geom_segment(data = move_site, inherit.aes = FALSE,
+             aes(lon, lat, xend = xend, yend = yend),
+             colour = "grey60",
+             linewidth = 1) +
+  geom_label(data=move_site,inherit.aes = FALSE, aes(x=xend, y=yend, label=1:2),
+             show.legend=FALSE, color="black", size=4) 
+  
+move_labels <- c("City of Superior - Parks, Recreation, & Forestry", "Superior Public Library")
+move_site <- siteSF%>%filter(Site %in% move_labels) %>%arrange(desc(lon))%>%mutate(xend = c(-92.10295 - 0.1, -92.09685 + 0.1),
+                                                                                   yend = rep(46.94, 2))
+
 #move labels on map
 #https://stackoverflow.com/questions/78529290/position-dodge-doesnt-dodge-geom-sf-label
 library(sf)
 library(viridis)
 library(dplyr)
 library(ggplot2)
+library(tigris)
 
 # Get US sf
 us_states <- states(cb = TRUE, resolution = "20m")
